@@ -1,0 +1,15 @@
+groups:
+  - name: spool-quarantine
+    rules:
+      - alert: SpoolEnvelopesQuarantined
+        expr: |
+          increase(spool_janitor_records_cleaned_total{reason=~"quarantine|retries_exhausted"}[10m]) > 0
+          or
+          (spool_janitor_records_cleaned_total{reason=~"quarantine|retries_exhausted"} > 0
+            unless
+            spool_janitor_records_cleaned_total{reason=~"quarantine|retries_exhausted"} offset 10m)
+        labels:
+          severity: warning
+        annotations:
+          summary: "Envelopes were quarantined ({{ $labels.reason }}) on {{ $labels.service_name }}"
+          description: "The janitor moved envelopes to quarantine in the last 10 minutes. Nothing removes them and their keys stay taken until they are requeued or discarded. See the Quarantine section of the devenv README."
