@@ -52,11 +52,11 @@ Grafana is available at **http://localhost:3000** (no login required).
 | Port | Service | Protocol | Description |
 |---|---|---|---|
 | `3000` | Grafana | HTTP | Dashboard UI |
-| `4317` | Grafana Tempo | gRPC (OTLP) | Trace ingestion — point your Spool node here |
-| `4318` | Grafana Tempo | HTTP (OTLP) | Trace ingestion (HTTP alternative) |
-| `4319` | OTel Collector | gRPC (OTLP) | Metrics ingestion — point your Spool node here |
-| `4320` | OTel Collector | HTTP (OTLP) | Metrics ingestion (HTTP alternative) |
-| `3100` | Grafana Loki | HTTP | Log ingestion and query |
+| `4317` | Grafana Tempo | gRPC (OTLP) | Trace ingestion (gRPC alternative, not used by Spool nodes) |
+| `4318` | Grafana Tempo | HTTP (OTLP) | Trace ingestion — used by Spool nodes, path `/v1/traces` |
+| `4319` | OTel Collector | gRPC (OTLP) | Metrics ingestion (gRPC alternative, not used by Spool nodes) |
+| `4320` | OTel Collector | HTTP (OTLP) | Metrics ingestion — used by Spool nodes, path `/v1/metrics` |
+| `3100` | Grafana Loki | HTTP (OTLP) | Log ingestion — used by Spool nodes, path `/otlp/v1/logs` — and log query |
 | `3200` | Grafana Tempo | HTTP | Tempo query API (used internally by Grafana) |
 | `9090` | Prometheus | HTTP | Metrics query API (used internally by Grafana) |
 
@@ -64,27 +64,34 @@ Grafana is available at **http://localhost:3000** (no login required).
 
 ## Connecting a Spool node
 
-Configure your Spool node's OpenTelemetry exporter to point to this stack:
+A Spool node exports traces, logs and metrics over **OTLP/HTTP**, so it connects to the HTTP ports of this stack and not to the gRPC ones. Each signal has its own endpoint, with its full path:
 
-```yaml
-# application.yml / SpoolNode configuration
-otel:
-  exporter:
-    otlp:
-      traces-endpoint: http://localhost:4317    # Tempo — gRPC
-      metrics-endpoint: http://localhost:4319   # OTel Collector — gRPC
+| Signal | Environment variable | Default |
+|---|---|---|
+| Traces | `OTEL_TRACES_ENDPOINT` | `http://localhost:4318/v1/traces` |
+| Logs | `OTEL_LOGS_ENDPOINT` | `http://localhost:3100/otlp/v1/logs` |
+| Metrics | `OTEL_METRICS_ENDPOINT` | `http://localhost:4320/v1/metrics` |
+| Service name | `SERVICE_NAME` | the name given in code |
+
+The defaults already match this stack, so a node running on the same machine needs no configuration. To point it somewhere else, set the variables or use the runtime builder:
+
+```java
+OpenTelemetryConfiguration configuration = OpenTelemetryConfiguration.builder()
+        .serviceName("spool")
+        .tracesEndpoint("http://localhost:4318/v1/traces")
+        .logsEndpoint("http://localhost:3100/otlp/v1/logs")
+        .metricsEndpoint("http://localhost:4320/v1/metrics")
+        .build();
+
+SpoolRuntime.builder()
+        .OpenTelemetryConfiguration(configuration)
+        .withNodeFromDSL("/descriptors/node.yaml")
+        .build();
 ```
 
-Or via JVM system properties:
+An endpoint set in code wins over its environment variable, which wins over the default.
 
-```bash
-java \
-  -Dotel.exporter.otlp.traces.endpoint=http://localhost:4317 \
-  -Dotel.exporter.otlp.metrics.endpoint=http://localhost:4319 \
-  -jar your-spool-node.jar
-```
-
-Traces and metrics will appear in Grafana automatically once the node starts emitting telemetry.
+Traces, logs and metrics will appear in Grafana automatically once the node starts emitting telemetry.
 
 ---
 
@@ -106,9 +113,9 @@ Four dashboards are pre-loaded in the **Spool** folder in Grafana. Each dashboar
 ```
 Spool node
     │
-    ├─── traces (OTLP gRPC :4317) ──────────► Grafana Tempo ─────────► Grafana
+    ├─── traces (OTLP HTTP :4318) ──────────► Grafana Tempo ─────────► Grafana
     │
-    ├─── metrics (OTLP gRPC :4319) ─────────► OTel Collector
+    ├─── metrics (OTLP HTTP :4320) ─────────► OTel Collector
     │                                               │
     │                                               └── Prometheus endpoint :8889
     │                                                         │
