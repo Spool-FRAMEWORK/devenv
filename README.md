@@ -17,6 +17,7 @@ Use this repository when you already have your own Kafka and PostgreSQL and only
 - [Connecting a Spool node](#connecting-a-spool-node)
 - [Authenticated backends](#authenticated-backends)
 - [Dashboards](#dashboards)
+- [Quarantine](#quarantine)
 - [Architecture](#architecture)
 - [License](#license)
 
@@ -152,6 +153,67 @@ Four dashboards are pre-loaded in the **Spool** folder in Grafana. Each dashboar
 | **Spool — Ingester** | Quarantine ratio, flush latency by policy, buffer size |
 | **Spool — Janitor** | Inbox cleanup cycles, events republished, event age distribution |
 | **Spool — Watchdog** | Module health state, mean downtime, aggregate node health percentage |
+
+---
+
+## Quarantine
+
+An envelope in quarantine is one that will not be processed as it is. It stays in the inbox in the `QUARANTINED` state, with its payload intact, and its key stays taken, so the same payload is rejected as a duplicate if it is captured again.
+
+### How an envelope gets there
+
+- **Its retries run out.** The janitor republishes an envelope that has been captured for longer than its threshold. After `maxRetries` attempts, 3 by default and not settable from a descriptor, it moves it to quarantine.
+- **The ingester validation flags it.** A critical violation of the validator sends the envelope to the quarantine store and publishes an `EnvelopeQuarantined` event with the violations, and the janitor moves the envelope. An ingester built from a descriptor has no quarantine store today, so it cannot store the record and the event is not published: there, an envelope reaches quarantine by the first way.
+
+### Who is told
+
+| Way in | Log of the janitor | Metric `reason` | Event |
+|---|---|---|---|
+| Validation | `INFO` "Quarantined N envelopes" | `quarantine` | `EnvelopeQuarantined`, with the violations |
+| Retries run out | `ERROR` "Quarantined Envelope … after N attempts" | `retries_exhausted` | none |
+
+Both add to `spool_janitor_records_cleaned_total`, which the **Records cleaned / s** and **Records cleaned (total)** panels of the **Spool — Janitor** dashboard show by `reason`. The metric holds four reasons:
+
+| `reason` | What it counts |
+|---|---|
+| `expired` | Persisted envelopes deleted after `millisecondsTTL` |
+| `quarantine` | Envelopes moved to quarantine after a validation failure |
+| `retries_exhausted` | Envelopes moved to quarantine after their retries ran out |
+| `quarantine_expired` | Quarantined envelopes deleted after `millisecondsQuarantineTTL` |
+
+The `SpoolEnvelopesQuarantined` alert, in `alerts.yml`, fires when either of the two quarantine reasons grows. This stack has no Alertmanager, so the alert shows at http://localhost:9090/alerts and in Grafana but is not sent anywhere. Connect Prometheus to an Alertmanager, or create the alert in Grafana with a contact point, to be notified.
+
+### How long it stays
+
+Nothing removes it by default. To delete what has been in quarantine for longer than a time, set `millisecondsQuarantineTTL` in the janitor:
+
+```yaml
+- janitor:
+    id: synthea-janitor
+    configuration:
+      millisecondsTTL: 86400000
+      millisecondsQuarantineTTL: 604800000
+```
+
+Deleting is final: the payload is lost. Leave it unset until someone has decided what should happen to those envelopes.
+
+### Requeue or discard
+
+`QuarantineReleaser` lists what is in quarantine and deals with it:
+
+```java
+QuarantineReleaser releaser = QuarantineReleaser.using(inboxReader, inboxUpdater, inboxEnvelopeRemover, eventPublisher);
+
+Collection<Envelope> quarantined = releaser.quarantined();
+ReleaseResult requeued = releaser.requeue(keys);
+ReleaseResult discarded = releaser.discard(keys);
+```
+
+- `requeue` returns the envelopes to the inbox with their retries at zero and announces them, so the ingester processes them again.
+- `discard` deletes them, which frees their keys so the same payloads can be captured again.
+- Both only act on envelopes that are in quarantine. A key that is not, or that does not exist, is skipped and appears in `ReleaseResult.skipped()`.
+
+There is no command for it yet: it is an API.
 
 ---
 
