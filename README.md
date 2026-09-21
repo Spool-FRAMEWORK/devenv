@@ -15,6 +15,7 @@ Use this repository when you already have your own Kafka and PostgreSQL and only
 - [Quick Start](#quick-start)
 - [Ports](#ports)
 - [Connecting a Spool node](#connecting-a-spool-node)
+- [Authenticated backends](#authenticated-backends)
 - [Dashboards](#dashboards)
 - [Architecture](#architecture)
 - [License](#license)
@@ -92,6 +93,52 @@ SpoolRuntime.builder()
 An endpoint set in code wins over its environment variable, which wins over the default.
 
 Traces, logs and metrics will appear in Grafana automatically once the node starts emitting telemetry.
+
+---
+
+## Authenticated backends
+
+A backend that requires credentials, such as Grafana Cloud or a collector behind an authenticating proxy, needs headers on every export request. Headers are set per exporter, with the same options for traces, logs and metrics.
+
+### Without code
+
+Set the standard OpenTelemetry variable. Values are percent-encoded, so a space is written `%20`:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20<base64 of instance-id:token>"
+```
+
+Use `OTEL_EXPORTER_OTLP_TRACES_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` or `OTEL_EXPORTER_OTLP_METRICS_HEADERS` to set headers for one signal only. Several headers are separated by commas, as in `Name=value,Other=value`.
+
+### In code
+
+```java
+OpenTelemetryConfiguration configuration = OpenTelemetryConfiguration.builder()
+        .serviceName("spool")
+        .tracesEndpoint("https://<gateway>/v1/traces")
+        .logsEndpoint("https://<gateway>/v1/logs")
+        .metricsEndpoint("https://<gateway>/v1/metrics")
+        .headerFromEnvironment("Authorization", "GRAFANA_OTLP_AUTHORIZATION")
+        .compression("gzip")
+        .build();
+```
+
+`headerFromEnvironment` names the environment variable that holds the value, so the secret never appears in code or in a descriptor. Here `GRAFANA_OTLP_AUTHORIZATION` holds the whole header value, for example `Basic <base64 of instance-id:token>`. If the variable is not set the node fails to start, and the message names the variable and the header, never the value.
+
+### Precedence
+
+When the same header is given more than once, the last one in this list wins. Header names are case-insensitive.
+
+1. `OTEL_EXPORTER_OTLP_HEADERS`
+2. `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS`
+3. `header(name, value)` on the builder
+4. `headerFromEnvironment(name, variable)` on the builder
+
+Use `header(name, value)` only for values that are not secret, such as a tenant id in `X-Scope-OrgID`.
+
+### Other options
+
+`compression("gzip")` compresses the requests, and `timeout(Duration)` sets how long an export may take. Both apply to the three signals. To give one signal its own settings, pass an `OTELExporterSettings` to `traces(...)`, `logs(...)` or `metrics(...)`: what it sets wins over the values shared by the three, and its headers are added to the shared ones.
 
 ---
 
