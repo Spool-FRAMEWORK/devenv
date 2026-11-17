@@ -16,6 +16,7 @@ Use this repository when you already have your own Kafka and PostgreSQL and only
 - [Ports](#ports)
 - [Connecting a Spool node](#connecting-a-spool-node)
 - [Authenticated backends](#authenticated-backends)
+- [Identity provider](#identity-provider)
 - [Dashboards](#dashboards)
 - [Quarantine](#quarantine)
 - [Architecture](#architecture)
@@ -32,6 +33,7 @@ Use this repository when you already have your own Kafka and PostgreSQL and only
 | **Grafana Loki** | `grafana/loki:3.3.0` | Log aggregation backend |
 | **Prometheus** | `prom/prometheus:v2.55.0` | Metrics storage and query backend |
 | **OTel Collector** | `otel/opentelemetry-collector-contrib:0.123.0` | Metrics ingestion via OTLP, export to Prometheus |
+| **Keycloak** | `quay.io/keycloak/keycloak:26.0.7` | OpenID Connect provider for the HTTP entries of a node, with one user per role |
 
 All data sources are pre-configured in Grafana. All four module dashboards are pre-loaded in the **Spool** folder.
 
@@ -61,6 +63,7 @@ Grafana is available at **http://localhost:3000** (no login required).
 | `3100` | Grafana Loki | HTTP (OTLP) | Log ingestion — used by Spool nodes, path `/otlp/v1/logs` — and log query |
 | `3200` | Grafana Tempo | HTTP | Tempo query API (used internally by Grafana) |
 | `9090` | Prometheus | HTTP | Metrics query API (used internally by Grafana) |
+| `8180` | Keycloak | HTTP | OpenID Connect issuer `http://localhost:8180/realms/spool`, and its admin console |
 
 ---
 
@@ -140,6 +143,41 @@ Use `header(name, value)` only for values that are not secret, such as a tenant 
 ### Other options
 
 `compression("gzip")` compresses the requests, and `timeout(Duration)` sets how long an export may take. Both apply to the three signals. To give one signal its own settings, pass an `OTELExporterSettings` to `traces(...)`, `logs(...)` or `metrics(...)`: what it sets wins over the values shared by the three, and its headers are added to the shared ones.
+
+---
+
+## Identity provider
+
+Every HTTP entry of a node, except its health, is authenticated by a provider declared in the descriptor (ADR-013 in the Spool Linear project). Keycloak plays that provider locally. It imports the `spool` realm from `keycloak/spool-realm.json`:
+
+| User | Password | Roles |
+|---|---|---|
+| `reader` | `reader` | `quarantine-reader` |
+| `resolver` | `resolver` | `quarantine-reader`, `quarantine-resolver` |
+| `bypasser` | `bypasser` | `quarantine-reader`, `quarantine-resolver`, `quarantine-bypasser` |
+
+These passwords, and `admin` / `admin` for the admin console, only exist in this local stack. Never reuse the realm file anywhere else.
+
+Point a node at it with an `OIDC` provider. The keys are found through the issuer's discovery document:
+
+```yaml
+authentication:
+  people:
+    type: OIDC
+    configuration:
+      issuer: http://localhost:8180/realms/spool
+      audience: spool-janitor
+      rolesClaim: realm_access.roles
+```
+
+Ask for a token as one of the users and send it as `Authorization: Bearer <token>`:
+
+```bash
+curl -s -d grant_type=password -d client_id=spool-janitor -d username=reader -d password=reader \
+  http://localhost:8180/realms/spool/protocol/openid-connect/token
+```
+
+The `spool-janitor` client adds itself to the audience of every token, so the `audience` above matches.
 
 ---
 

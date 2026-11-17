@@ -1,0 +1,65 @@
+{
+  "realm": "spool",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "quarantine-reader", "description": "Lists and reads quarantined records" },
+      { "name": "quarantine-resolver", "description": "Republishes, corrects and purges quarantined records" },
+      { "name": "quarantine-bypasser", "description": "Lets a quarantined record through validation" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "spool-janitor",
+      "name": "Spool janitor",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "spool-janitor audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "spool-janitor",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "reader",
+      "enabled": true,
+      "email": "reader@spool.local",
+      "emailVerified": true,
+      "firstName": "Quarantine",
+      "lastName": "Reader",
+      "credentials": [ { "type": "password", "value": "reader", "temporary": false } ],
+      "realmRoles": [ "quarantine-reader" ]
+    },
+    {
+      "username": "resolver",
+      "enabled": true,
+      "email": "resolver@spool.local",
+      "emailVerified": true,
+      "firstName": "Quarantine",
+      "lastName": "Resolver",
+      "credentials": [ { "type": "password", "value": "resolver", "temporary": false } ],
+      "realmRoles": [ "quarantine-reader", "quarantine-resolver" ]
+    },
+    {
+      "username": "bypasser",
+      "enabled": true,
+      "email": "bypasser@spool.local",
+      "emailVerified": true,
+      "firstName": "Quarantine",
+      "lastName": "Bypasser",
+      "credentials": [ { "type": "password", "value": "bypasser", "temporary": false } ],
+      "realmRoles": [ "quarantine-reader", "quarantine-resolver", "quarantine-bypasser" ]
+    }
+  ]
+}
