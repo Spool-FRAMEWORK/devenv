@@ -1,0 +1,78 @@
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: fires when envelopes are quarantined after a validation failure
+    interval: 1m
+    input_series:
+      - series: 'spool_janitor_records_cleaned_total{reason="quarantine", service_name="boe-janitor"}'
+        values: '0 0 0 2 2 2'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SpoolEnvelopesQuarantined
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              reason: quarantine
+              service_name: boe-janitor
+            exp_annotations:
+              summary: "Envelopes were quarantined (quarantine) on boe-janitor"
+              description: "The janitor moved envelopes to quarantine in the last 10 minutes. Nothing removes them and their keys stay taken until they are requeued or discarded. See the Quarantine section of the devenv README."
+
+  - name: fires when envelopes are quarantined after their retries ran out
+    interval: 1m
+    input_series:
+      - series: 'spool_janitor_records_cleaned_total{reason="retries_exhausted", service_name="boe-janitor"}'
+        values: '1 1 4 4'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SpoolEnvelopesQuarantined
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              reason: retries_exhausted
+              service_name: boe-janitor
+            exp_annotations:
+              summary: "Envelopes were quarantined (retries_exhausted) on boe-janitor"
+              description: "The janitor moved envelopes to quarantine in the last 10 minutes. Nothing removes them and their keys stay taken until they are requeued or discarded. See the Quarantine section of the devenv README."
+
+  - name: fires when the counter first appears already above zero
+    interval: 1m
+    input_series:
+      - series: 'spool_janitor_records_cleaned_total{reason="quarantine", service_name="boe-janitor"}'
+        values: '3 3 3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SpoolEnvelopesQuarantined
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              reason: quarantine
+              service_name: boe-janitor
+            exp_annotations:
+              summary: "Envelopes were quarantined (quarantine) on boe-janitor"
+              description: "The janitor moved envelopes to quarantine in the last 10 minutes. Nothing removes them and their keys stay taken until they are requeued or discarded. See the Quarantine section of the devenv README."
+
+  - name: does not fire for records cleaned for other reasons
+    interval: 1m
+    input_series:
+      - series: 'spool_janitor_records_cleaned_total{reason="expired", service_name="boe-janitor"}'
+        values: '0 5 10'
+      - series: 'spool_janitor_records_cleaned_total{reason="quarantine_expired", service_name="boe-janitor"}'
+        values: '0 1 2'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: SpoolEnvelopesQuarantined
+        exp_alerts: []
+
+  - name: stops firing when nothing was quarantined in the last 10 minutes
+    interval: 1m
+    input_series:
+      - series: 'spool_janitor_records_cleaned_total{reason="quarantine", service_name="boe-janitor"}'
+        values: '2x20'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: SpoolEnvelopesQuarantined
+        exp_alerts: []

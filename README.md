@@ -183,6 +183,12 @@ Both add to `spool_janitor_records_cleaned_total`, which the **Records cleaned /
 
 The `SpoolEnvelopesQuarantined` alert, in `alerts.yml`, fires when either of the two quarantine reasons grows. This stack has no Alertmanager, so the alert shows at http://localhost:9090/alerts and in Grafana but is not sent anywhere. Connect Prometheus to an Alertmanager, or create the alert in Grafana with a contact point, to be notified.
 
+`alerts.test.yml` checks when the alert fires and when it does not, with made-up series. Run it after changing the rule:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work --entrypoint promtool prom/prometheus:v2.55.0 test rules alerts.test.yml
+```
+
 ### How long it stays
 
 Nothing removes it by default. To delete what has been in quarantine for longer than a time, set `millisecondsQuarantineTTL` in the janitor:
